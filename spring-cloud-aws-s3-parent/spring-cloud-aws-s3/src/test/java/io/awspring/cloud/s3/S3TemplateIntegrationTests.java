@@ -15,15 +15,17 @@
  */
 package io.awspring.cloud.s3;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.assertj.core.api.Assertions.*;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStreamWriter;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,6 +44,7 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListBucketsResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 /**
  * Integration tests for {@link S3Template}.
@@ -60,6 +63,7 @@ class S3TemplateIntegrationTests {
 					.withReuse(true);
 
 	private static S3Client client;
+	private static S3Presigner s3Presigner;
 
 	private S3Template s3Template;
 
@@ -71,13 +75,16 @@ class S3TemplateIntegrationTests {
 				.create(AwsBasicCredentials.create(localstack.getAccessKey(), localstack.getSecretKey()));
 		client = S3Client.builder().region(Region.of(localstack.getRegion())).credentialsProvider(credentialsProvider)
 				.endpointOverride(localstack.getEndpointOverride(LocalStackContainer.Service.S3)).build();
+		s3Presigner = S3Presigner.builder().region(Region.of(localstack.getRegion()))
+				.credentialsProvider(credentialsProvider)
+				.endpointOverride(localstack.getEndpointOverride(LocalStackContainer.Service.S3)).build();
 	}
 
 	@BeforeEach
 	void init() {
 		this.s3Template = new S3Template(client,
 				new DiskBufferingS3OutputStreamProvider(client, new PropertiesS3ObjectContentTypeResolver()),
-				new Jackson2JsonS3ObjectConverter(new ObjectMapper()));
+				new Jackson2JsonS3ObjectConverter(new ObjectMapper()), s3Presigner);
 
 		client.createBucket(r -> r.bucket(BUCKET_NAME));
 	}
@@ -173,7 +180,7 @@ class S3TemplateIntegrationTests {
 	@Test
 	void downloadsFile() throws IOException {
 		client.putObject(r -> r.bucket(BUCKET_NAME).key("file.txt"), RequestBody.fromString("hello"));
-		S3Resource resource = (S3Resource) s3Template.download(BUCKET_NAME, "file.txt");
+		S3Resource resource = s3Template.download(BUCKET_NAME, "file.txt");
 		assertThat(resource.contentLength()).isEqualTo(5);
 		assertThat(resource.getDescription()).isNotNull();
 
@@ -181,6 +188,29 @@ class S3TemplateIntegrationTests {
 			String result = StreamUtils.copyToString(is, StandardCharsets.UTF_8);
 			assertThat(result).isEqualTo("hello");
 		}
+	}
+
+	@Test
+	void getPresignedUrlForRead() throws Exception {
+		client.putObject(r -> r.bucket(BUCKET_NAME).key("file.txt"), RequestBody.fromString("hello"));
+		Duration signedDuration = Duration.ofSeconds(1L);
+		URL preSignedUrlForRead = s3Template.getPreSignedUrlForRead(BUCKET_NAME, "file.txt", signedDuration);
+
+		HttpURLConnection connection = (HttpURLConnection) preSignedUrlForRead.openConnection();
+
+		// Download the result of executing the request.
+		try (InputStream content = connection.getInputStream()) {
+			String result = StreamUtils.copyToString(content, StandardCharsets.UTF_8);
+			assertThat(result).isEqualTo("hello");
+		}
+	}
+
+	@Test
+	void getPresignedUrlForPut() throws Exception {
+		Duration signedDuration = Duration.ofSeconds(1L);
+		URL preSignedUrlForRead = s3Template.getPreSignedUrlForPut(BUCKET_NAME, "file.txt", signedDuration, null);
+
+		// TODO
 	}
 
 	private void bucketDoesNotExist(ListBucketsResponse r, String bucketName) {

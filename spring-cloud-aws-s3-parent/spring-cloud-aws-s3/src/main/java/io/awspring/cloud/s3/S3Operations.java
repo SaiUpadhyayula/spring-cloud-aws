@@ -16,6 +16,8 @@
 package io.awspring.cloud.s3;
 
 import java.io.InputStream;
+import java.net.URL;
+import java.time.Duration;
 import org.springframework.lang.Nullable;
 import software.amazon.awssdk.services.s3.model.CreateBucketResponse;
 
@@ -103,4 +105,24 @@ public interface S3Operations {
 	 * @return downloaded object represented as {@link S3Resource}
 	 */
 	S3Resource download(String bucketName, String key);
+
+	/**
+	 * Get PreSigned URL for fetching an S3 Object
+	 *
+	 * @param bucketName - the bucket name
+	 * @param key - the object key
+	 * @param signatureDuration -
+	 * @return downloaded object represented as {@link S3Resource}
+	 */
+	URL getPreSignedUrlForRead(String bucketName, String key, Duration signatureDuration);
+
+	/**
+	 * Get PreSigned URL for putting an S3 Object
+	 *
+	 * @param bucketName - the bucket name
+	 * @param key - the object key
+	 * @return downloaded object represented as {@link S3Resource}
+	 */
+	URL getPreSignedUrlForPut(String bucketName, String key, Duration signatureDuration,
+			@Nullable ObjectMetadata objectMetadata);
 }

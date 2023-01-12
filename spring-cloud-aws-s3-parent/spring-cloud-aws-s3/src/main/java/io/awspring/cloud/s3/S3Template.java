@@ -17,11 +17,17 @@ package io.awspring.cloud.s3;
 
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.URL;
+import java.time.Duration;
 import org.springframework.lang.Nullable;
 import org.springframework.util.Assert;
 import org.springframework.util.StreamUtils;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.GetObjectPresignRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
 
 /**
  * Higher level abstraction over {@link S3Client} providing methods for the most common use cases.
@@ -36,14 +42,18 @@ public class S3Template implements S3Operations {
 
 	private final S3ObjectConverter s3ObjectConverter;
 
+	private final S3Presigner s3Presigner;
+
 	public S3Template(S3Client s3Client, S3OutputStreamProvider s3OutputStreamProvider,
-			S3ObjectConverter s3ObjectConverter) {
+			S3ObjectConverter s3ObjectConverter, S3Presigner s3Presigner) {
 		Assert.notNull(s3Client, "s3Client is required");
 		Assert.notNull(s3OutputStreamProvider, "s3OutputStreamProvider is required");
 		Assert.notNull(s3ObjectConverter, "s3ObjectConverter is required");
+		Assert.notNull(s3Presigner, "s3Presigner is required");
 		this.s3Client = s3Client;
 		this.s3OutputStreamProvider = s3OutputStreamProvider;
 		this.s3ObjectConverter = s3ObjectConverter;
+		this.s3Presigner = s3Presigner;
 	}
 
 	@Override
@@ -126,6 +136,41 @@ public class S3Template implements S3Operations {
 		Assert.notNull(key, "key is required");
 
 		return new S3Resource(bucketName, key, s3Client, s3OutputStreamProvider);
+	}
+
+	@Override
+	public URL getPreSignedUrlForRead(String bucketName, String key, Duration signatureDuration) {
+		Assert.notNull(bucketName, "bucketName is required");
+		Assert.notNull(key, "key is required");
+		Assert.notNull(signatureDuration, "signatureDuration is required");
+
+		GetObjectRequest getObjectRequest = GetObjectRequest.builder().bucket(bucketName).key(key).build();
+
+		GetObjectPresignRequest getObjectPresignRequest = GetObjectPresignRequest.builder()
+				.getObjectRequest(getObjectRequest).signatureDuration(signatureDuration).build();
+
+		return s3Presigner.presignGetObject(getObjectPresignRequest).url();
+	}
+
+	@Override
+	public URL getPreSignedUrlForPut(String bucketName, String key, Duration signatureDuration,
+			@Nullable ObjectMetadata objectMetadata) {
+		Assert.notNull(bucketName, "bucketName is required");
+		Assert.notNull(key, "key is required");
+		Assert.notNull(signatureDuration, "signatureDuration is required");
+
+		PutObjectRequest.Builder putObjectRequestBuilder = PutObjectRequest.builder().bucket(bucketName).key(key);
+
+		if (objectMetadata != null) {
+			putObjectRequestBuilder.metadata(objectMetadata.getMetadata());
+		}
+
+		PutObjectRequest putObjectRequest = putObjectRequestBuilder.build();
+
+		PutObjectPresignRequest putObjectPresignRequest = PutObjectPresignRequest.builder()
+				.signatureDuration(signatureDuration).putObjectRequest(putObjectRequest).build();
+
+		return s3Presigner.presignPutObject(putObjectPresignRequest).url();
 	}
 
 }

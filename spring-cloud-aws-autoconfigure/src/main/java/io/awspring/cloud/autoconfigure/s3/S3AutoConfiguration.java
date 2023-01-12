@@ -44,9 +44,12 @@ import org.springframework.boot.context.properties.PropertyMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.regions.providers.AwsRegionProvider;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 /**
  * {@link EnableAutoConfiguration} for {@link S3Client} and {@link S3ProtocolResolver}.
@@ -80,8 +83,8 @@ public class S3AutoConfiguration {
 	@ConditionalOnMissingBean(S3Operations.class)
 	@ConditionalOnBean(S3ObjectConverter.class)
 	S3Template s3Template(S3Client s3Client, S3OutputStreamProvider s3OutputStreamProvider,
-			S3ObjectConverter s3ObjectConverter) {
-		return new S3Template(s3Client, s3OutputStreamProvider, s3ObjectConverter);
+			S3ObjectConverter s3ObjectConverter, S3Presigner s3Presigner) {
+		return new S3Template(s3Client, s3OutputStreamProvider, s3ObjectConverter, s3Presigner);
 	}
 
 	private S3Configuration s3ServiceConfiguration() {
@@ -139,4 +142,10 @@ public class S3AutoConfiguration {
 				contentTypeResolver.orElseGet(PropertiesS3ObjectContentTypeResolver::new));
 	}
 
+	@Bean
+	@ConditionalOnMissingBean
+	S3Presigner s3Presigner(AwsCredentialsProvider awsCredentialsProvider, AwsRegionProvider awsRegionProvider) {
+		return S3Presigner.builder().credentialsProvider(awsCredentialsProvider).region(awsRegionProvider.getRegion())
+				.endpointOverride(properties.getEndpoint()).build();
+	}
 }
